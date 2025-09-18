@@ -1,90 +1,96 @@
 import java.net.*;
+import java.security.*;
+import java.util.Base64;
 import java.util.Scanner;
 
 public class ChatClientUDP {
-    // Configurações do servidor: IP e porta
     private static final int SERVER_PORT = 50001;
     private static final String SERVER_IP = "localhost";
-    private static final int BUFFER_SIZE = 1024;
+    private static final int BUFFER_SIZE = 4096;
 
     public static void main(String[] args) throws Exception {
-        Scanner scanner = new Scanner(System.in);
-        // Cria um DatagramSocket, que é usado para enviar e receber pacotes
-        // Diferente do TCP, não há uma conexão persistente com o servidor
         DatagramSocket socket = new DatagramSocket();
+        Scanner scanner = new Scanner(System.in);
 
-        System.out.print("Digite seu nome de usuario: ");
+        KeyPair clientKeyPair = RSAUtils.generateKeyPair();
+        PublicKey clientPublicKey = clientKeyPair.getPublic();
+        PrivateKey clientPrivateKey = clientKeyPair.getPrivate();
+
+        System.out.print("Digite seu nome de usuário: ");
         String username = scanner.nextLine();
 
-        // Envia uma mensagem de registro para o servidor
-        // Isso é necessário em UDP para que o servidor saiba o endereço e a porta do cliente para enviar mensagens de volta
-        sendMessage(socket, "REGISTRO:" + username);
-        // Pequena pausa para garantir que o servidor processe o registro antes de enviar outras mensagens
-        Thread.sleep(200);
+        send(socket, "REGISTRO:" + username + ":" + RSAUtils.keyToString(clientPublicKey));
 
-        // Cria uma thread separada para receber mensagens do servidor
-        // Isso permite que o cliente continue digitando e enviando mensagens enquanto escuta por novas mensagens do servidor
         new Thread(() -> {
             byte[] buffer = new byte[BUFFER_SIZE];
-            // Loop infinito para receber mensagens
             while (!socket.isClosed()) {
-                DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
                 try {
-                    // Bloqueia a execução até que um pacote seja recebido
+                    DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
                     socket.receive(packet);
-                    // Converte os dados do pacote para uma String e exibe no console
                     String msg = new String(packet.getData(), 0, packet.getLength());
-                    System.out.println(msg);
-                } catch (SocketException e) {
-                    // Esta exceção é esperada e ignorada quando o socket é fechado pela thread principal (ao sair do chat)
-                    break; // Sai do loop e termina a thread
+
+                    if (msg.startsWith("ENCRYPTED:")) {
+                        String[] parts = msg.split(":", 5);
+                        String fromUser = parts[1];
+                        byte[] encryptedMsg = Base64.getDecoder().decode(parts[2]);
+                        byte[] signature = Base64.getDecoder().decode(parts[3]);
+                        PublicKey senderKey = RSAUtils.stringToPublicKey(parts[4]);
+
+                        try {
+                            String decrypted = RSAUtils.decrypt(encryptedMsg, clientPrivateKey);
+                            boolean valid = RSAUtils.verify(decrypted, signature, senderKey);
+
+                            if (valid) {
+                                System.out.println("[Privado-SECURE] " + fromUser + ": " + decrypted);
+                            } else {
+                                System.out.println("[ERRO] Assinatura inválida de " + fromUser);
+                            }
+                        } catch (Exception e) {
+                            System.err.println("[ERRO] Falha ao processar mensagem criptografada.");
+                        }
+                    } else {
+                        System.out.println(msg);
+                    }
                 } catch (Exception e) {
-                    // Captura outras exceções de forma geral
-                    e.printStackTrace();
+                    break;
                 }
             }
         }).start();
 
-        // Loop principal para ler a entrada do usuário e enviar mensagens
         while (true) {
             String input = scanner.nextLine();
             if (input.equalsIgnoreCase("!list")) {
-                // Envia o comando para listar usuários ao servidor
-                sendMessage(socket, "LISTAR_USUARIOS:");
-            }
-            else if (input.equalsIgnoreCase("!exit")) {
-                // Envia o comando de saída ao servidor
-                sendMessage(socket, "SAIR:" + username);
-                // Pausa para dar tempo ao pacote de saída ser enviado antes de fechar o socket.
+                send(socket, "LISTAR_USUARIOS:");
+            } else if (input.equalsIgnoreCase("!exit")) {
+                send(socket, "SAIR:" + username);
                 Thread.sleep(200);
-                // Sai do loop, encerrando o programa
                 socket.close();
                 break;
-            }
-            else if (input.startsWith("@")) {
-                // Lida com mensagens privadas
-                int space = input.indexOf(" ");
-                if (space == -1) {
-                    System.out.println("Formato inválido. Use: @usuario mensagem");
-                    continue;
+            } else if (input.startsWith("@")) {
+                String[] parts = input.split(" ", 3);
+                if (parts.length >= 3 && parts[1].equalsIgnoreCase("SECURE")) {
+                    String target = parts[0].substring(1);
+                    String message = parts[2];
+
+                    byte[] signature = RSAUtils.sign(message, clientPrivateKey);
+                    String packet = "PRIVADO:" + username + ":" + target + ":SECURE " +
+                            Base64.getEncoder().encodeToString(signature) + " " + message;
+                    send(socket, packet);
+                } else {
+                    String target = input.substring(1, input.indexOf(" "));
+                    String msg = input.substring(input.indexOf(" ") + 1);
+                    send(socket, "PRIVADO:" + username + ":" + target + ":" + msg);
                 }
-                String to = input.substring(1, space);
-                String msg = input.substring(space + 1);
-                sendMessage(socket, "PRIVADO:" + username + ":" + to + ":" + msg);
             } else {
-                // Lida com mensagens de broadcast para todos
-                sendMessage(socket, "BROADCAST:" + username + ":" + input);
+                send(socket, "BROADCAST:" + username + ":" + input);
             }
         }
     }
 
-    // Método auxiliar para enviar uma mensagem ao servidor (DatagramPacket)
-    private static void sendMessage(DatagramSocket socket, String msg) throws Exception {
+    private static void send(DatagramSocket socket, String msg) throws Exception {
+        InetAddress addr = InetAddress.getByName(SERVER_IP);
         byte[] data = msg.getBytes();
-        InetAddress serverAddress = InetAddress.getByName(SERVER_IP);
-        // Cria um pacote com os dados, o endereço e a porta do servidor
-        DatagramPacket packet = new DatagramPacket(data, data.length, serverAddress, SERVER_PORT);
-        // Envia o pacote de forma "fire-and-forget" - Não há garantia de entrega
+        DatagramPacket packet = new DatagramPacket(data, data.length, addr, SERVER_PORT);
         socket.send(packet);
     }
 }
