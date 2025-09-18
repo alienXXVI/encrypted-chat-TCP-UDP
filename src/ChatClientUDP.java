@@ -16,7 +16,7 @@ public class ChatClientUDP {
         PublicKey clientPublicKey = clientKeyPair.getPublic();
         PrivateKey clientPrivateKey = clientKeyPair.getPrivate();
 
-        System.out.print("Digite seu nome de usuário: ");
+        System.out.print("Digite seu nome de usuario: ");
         String username = scanner.nextLine();
 
         send(socket, "REGISTRO:" + username + ":" + RSAUtils.keyToString(clientPublicKey));
@@ -43,7 +43,7 @@ public class ChatClientUDP {
                             if (valid) {
                                 System.out.println("[Privado-SECURE] " + fromUser + ": " + decrypted);
                             } else {
-                                System.out.println("[ERRO] Assinatura inválida de " + fromUser);
+                                System.out.println("[ERRO] Assinatura invalida de " + fromUser);
                             }
                         } catch (Exception e) {
                             System.err.println("[ERRO] Falha ao processar mensagem criptografada.");
@@ -73,8 +73,8 @@ public class ChatClientUDP {
                     String message = parts[2];
 
                     byte[] signature = RSAUtils.sign(message, clientPrivateKey);
-                    String packet = "PRIVADO:" + username + ":" + target + ":SECURE " +
-                            Base64.getEncoder().encodeToString(signature) + " " + message;
+                    String packet = "PRIVADO:" + username + ":" + target + ":SECURE:" +
+                            Base64.getEncoder().encodeToString(signature) + ":" + message;
                     send(socket, packet);
                 } else {
                     String target = input.substring(1, input.indexOf(" "));

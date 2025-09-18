@@ -1,57 +1,58 @@
-import javax.crypto.Cipher;
 import java.security.*;
+import java.security.spec.*;
+import javax.crypto.Cipher;
 import java.util.Base64;
-import java.security.spec.X509EncodedKeySpec;
 
 public class RSAUtils {
 
-    // Gera um par de chaves (pública e privada)
+    // Gera um par de chaves RSA (pública + privada)
     public static KeyPair generateKeyPair() throws NoSuchAlgorithmException {
         KeyPairGenerator keyGen = KeyPairGenerator.getInstance("RSA");
-        keyGen.initialize(2048); // Tamanho da chave: 2048 bits é o padrão atual
+        keyGen.initialize(2048); // 2048 bits
         return keyGen.generateKeyPair();
     }
 
-    // Criptografa uma mensagem com uma chave pública
-    public static byte[] encrypt(String data, PublicKey publicKey) throws Exception {
-        Cipher cipher = Cipher.getInstance("RSA");
-        cipher.init(Cipher.ENCRYPT_MODE, publicKey);
-        return cipher.doFinal(data.getBytes());
-    }
-
-    // Descriptografa uma mensagem com uma chave privada
-    public static String decrypt(byte[] data, PrivateKey privateKey) throws Exception {
-        Cipher cipher = Cipher.getInstance("RSA");
-        cipher.init(Cipher.DECRYPT_MODE, privateKey);
-        byte[] decryptedBytes = cipher.doFinal(data);
-        return new String(decryptedBytes);
-    }
-    
-    // Assina uma mensagem com a chave privada do remetente
-    public static byte[] sign(String data, PrivateKey privateKey) throws Exception {
-        Signature signature = Signature.getInstance("SHA256withRSA");
-        signature.initSign(privateKey);
-        signature.update(data.getBytes());
-        return signature.sign();
-    }
-
-    // Verifica a assinatura de uma mensagem com a chave pública do remetente
-    public static boolean verify(String data, byte[] signatureBytes, PublicKey publicKey) throws Exception {
-        Signature signature = Signature.getInstance("SHA256withRSA");
-        signature.initVerify(publicKey);
-        signature.update(data.getBytes());
-        return signature.verify(signatureBytes);
-    }
-    
-    // Converte a chave para String (para transporte)
-    public static String keyToString(Key key) {
+    // Converte chave pública para String Base64
+    public static String keyToString(PublicKey key) {
         return Base64.getEncoder().encodeToString(key.getEncoded());
     }
 
-    // Converte a String de volta para Chave Pública
-    public static PublicKey stringToPublicKey(String keyString) throws Exception {
-        byte[] keyBytes = Base64.getDecoder().decode(keyString);
-        KeyFactory keyFactory = KeyFactory.getInstance("RSA");
-        return keyFactory.generatePublic(new X509EncodedKeySpec(keyBytes));
+    // Converte String Base64 para chave pública
+    public static PublicKey stringToPublicKey(String keyStr) throws Exception {
+        byte[] bytes = Base64.getDecoder().decode(keyStr);
+        X509EncodedKeySpec spec = new X509EncodedKeySpec(bytes);
+        KeyFactory kf = KeyFactory.getInstance("RSA");
+        return kf.generatePublic(spec);
+    }
+
+    // Criptografa uma mensagem com a chave pública do destinatário
+    public static byte[] encrypt(String message, PublicKey key) throws Exception {
+        Cipher cipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
+        cipher.init(Cipher.ENCRYPT_MODE, key);
+        return cipher.doFinal(message.getBytes("UTF-8"));
+    }
+
+    // Descriptografa uma mensagem com a chave privada do destinatário
+    public static String decrypt(byte[] encrypted, PrivateKey key) throws Exception {
+        Cipher cipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
+        cipher.init(Cipher.DECRYPT_MODE, key);
+        byte[] decrypted = cipher.doFinal(encrypted);
+        return new String(decrypted, "UTF-8");
+    }
+
+    // Assina uma mensagem com a chave privada
+    public static byte[] sign(String message, PrivateKey key) throws Exception {
+        Signature signature = Signature.getInstance("SHA256withRSA");
+        signature.initSign(key);
+        signature.update(message.getBytes("UTF-8"));
+        return signature.sign();
+    }
+
+    // Verifica assinatura com a chave pública
+    public static boolean verify(String message, byte[] sig, PublicKey key) throws Exception {
+        Signature signature = Signature.getInstance("SHA256withRSA");
+        signature.initVerify(key);
+        signature.update(message.getBytes("UTF-8"));
+        return signature.verify(sig);
     }
 }

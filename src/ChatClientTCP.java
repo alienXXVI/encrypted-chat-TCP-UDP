@@ -2,6 +2,8 @@ import java.io.*;
 import java.net.*;
 import java.security.*;
 import java.util.Base64;
+import java.util.HashMap;
+import java.util.Map;
 
 public class ChatClientTCP {
     public static void main(String[] args) throws Exception {
@@ -11,54 +13,43 @@ public class ChatClientTCP {
         BufferedReader keyboard = new BufferedReader(new InputStreamReader(System.in));
         PrintWriter out = new PrintWriter(socket.getOutputStream(), true);
 
-        // Gera par de chaves do cliente
         KeyPair clientKeyPair = RSAUtils.generateKeyPair();
         PublicKey clientPublicKey = clientKeyPair.getPublic();
         PrivateKey clientPrivateKey = clientKeyPair.getPrivate();
 
-        System.out.print("Digite seu nome de usuário: ");
+        Map<String, PublicKey> keyCache = new HashMap<>();
+
+        System.out.print("Digite seu nome de usuario: ");
         String username = keyboard.readLine();
-        // Registra o usuário enviando nome de usuário e chave pública
         out.println("REGISTRO:" + username + ":" + RSAUtils.keyToString(clientPublicKey));
 
-        // Thread para processar mensagens recebidas
+        // Thread para receber mensagens
         new Thread(() -> {
             String serverMsg;
             try {
                 while ((serverMsg = in.readLine()) != null) {
-                    if (serverMsg.startsWith("ENCRYPTED:")) {
-                        // ENCRYPTED:remetente:msgCripto:assinatura:remetentePublicKey
-                        String[] parts = serverMsg.split(":", 5);
+                    if (serverMsg.startsWith("PUBKEYRESP:")) {
+                        String[] parts = serverMsg.split(":", 3);
+                        String user = parts[1];
+                        PublicKey pubKey = RSAUtils.stringToPublicKey(parts[2]);
+                        keyCache.put(user, pubKey);
+                        // System.out.println("[INFO] Chave pública de " + user + " recebida.");
+                    } else if (serverMsg.startsWith("ENCRYPTED:")) {
+                        String[] parts = serverMsg.split(":", 3);
                         String fromUser = parts[1];
-                        byte[] encryptedMsg = Base64.getDecoder().decode(parts[2]);
-                        byte[] signature = Base64.getDecoder().decode(parts[3]);
-                        PublicKey senderPublicKey = RSAUtils.stringToPublicKey(parts[4]);
-
-                        try {
-                            String decrypted = RSAUtils.decrypt(encryptedMsg, clientPrivateKey);
-
-                            boolean valid = RSAUtils.verify(decrypted, signature, senderPublicKey);
-                            if (valid) {
-                                System.out.println("[Privado-SECURE] " + fromUser + ": " + decrypted);
-                            } else {
-                                System.out.println("[ERRO] Assinatura inválida na mensagem de " + fromUser);
-                            }
-                        } catch (Exception e) {
-                            System.err.println("[ERRO] Falha ao processar mensagem criptografada: " + e.getMessage());
-                        }
+                        byte[] encrypted = Base64.getDecoder().decode(parts[2]);
+                        String decrypted = RSAUtils.decrypt(encrypted, clientPrivateKey);
+                        System.out.println("[Privado-SECURE] " + fromUser + ": " + decrypted);
                     } else {
                         System.out.println(serverMsg);
                     }
                 }
-            } catch (IOException e) {
+            } catch (Exception e) {
                 e.printStackTrace();
-            } catch (Exception e1) {
-                // TODO Auto-generated catch block
-                e1.printStackTrace();
             }
         }).start();
 
-        // Loop principal de envio
+        // Loop de envio
         String userInput;
         while ((userInput = keyboard.readLine()) != null) {
             if (userInput.equalsIgnoreCase("!list")) {
@@ -66,24 +57,33 @@ public class ChatClientTCP {
             } else if (userInput.equalsIgnoreCase("!exit")) {
                 out.println("!exit");
                 break;
-            } else {
-                if (userInput.startsWith("@")) {
-                    String[] parts = userInput.split(" ", 3);
-                    if (parts.length >= 3 && parts[1].equalsIgnoreCase("SECURE")) {
-                        // message = parts[2]
-                        String message = parts[2];
-                        byte[] signature = RSAUtils.sign(message, clientPrivateKey);
-                        String packet = "@" + parts[0].substring(1) + " SECURE " +
-                                        Base64.getEncoder().encodeToString(signature) + " " + message;
-                        out.println(packet);
-                    } else {
-                        out.println(userInput); // mensagem privada comum
+            } else if (userInput.startsWith("@")) {
+                String[] parts = userInput.split(" ", 3);
+                String targetUser = parts[0].substring(1);
+                boolean secure = parts.length >= 3 && parts[1].equalsIgnoreCase("SECURE");
+                String message = secure ? parts[2] : userInput.substring(userInput.indexOf(" ") + 1);
+
+                if (secure) {
+                    PublicKey targetKey = keyCache.get(targetUser);
+                    if (targetKey == null) {
+                        // System.out.println("[INFO] Solicitando chave pública de " + targetUser + "...");
+                        out.println("REQKEY:" + targetUser);
+                        // aguarda receber PUBKEYRESP na thread de recebimento
+                        while (!keyCache.containsKey(targetUser)) {
+                            Thread.sleep(50);
+                        }
+                        targetKey = keyCache.get(targetUser);
                     }
+                    byte[] encrypted = RSAUtils.encrypt(message, targetKey);
+                    out.println("ENCRYPTED:" + targetUser + ":" + Base64.getEncoder().encodeToString(encrypted));
                 } else {
-                    out.println(userInput); // broadcast
+                    out.println(userInput);
                 }
+            } else {
+                out.println(userInput);
             }
         }
+
         socket.close();
     }
 }
