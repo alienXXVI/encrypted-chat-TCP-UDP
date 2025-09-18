@@ -69,6 +69,7 @@ public class ChatServerTCP {
                             text = message.substring(message.indexOf(" ") + 1);
                         }
 
+                        System.out.println("[Privado" + (secure ? "-SECURE] " : "] ") + username + " para " + targetUser + ": " + text);
                         sendToUser(targetUser, "[Privado] " + username + ": " + text, secure, signatureB64);
                     } else {
                         // Broadcast simples
@@ -127,7 +128,7 @@ public class ChatServerTCP {
                     }
                 }
             }
-            System.out.println("Mensagem enviada para " + user + ": " + message);
+            // System.out.println("Mensagem enviada para " + user + ": " + message);
         }
 
         private void sendUserList(PrintWriter out) {
