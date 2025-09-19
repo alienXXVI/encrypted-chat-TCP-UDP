@@ -5,7 +5,22 @@ import java.util.Base64;
 import java.util.HashMap;
 import java.util.Map;
 
+/**
+ * Cliente de chat TCP que se conecta a um servidor, envia e recebe mensagens.
+ * Suporta comunicação de texto simples, mensagens criptografadas e comandos.
+ * Gerencia a geração de chaves RSA e o cache de chaves públicas de outros usuários.
+ *
+ * @author [Seu Nome]
+ * @version 1.0
+ */
 public class ChatClientTCP {
+    /**
+     * Ponto de entrada principal do cliente. Gerencia a conexão, a troca de chaves,
+     * o loop de envio e a thread de recebimento.
+     *
+     * @param args Argumentos da linha de comando (não utilizados).
+     * @throws Exception Se ocorrer um erro durante a conexão ou I/O.
+     */
     public static void main(String[] args) throws Exception {
         Socket socket = new Socket("localhost", 50000);
 
@@ -23,7 +38,7 @@ public class ChatClientTCP {
         String username = keyboard.readLine();
         out.println("REGISTRO:" + username + ":" + RSAUtils.keyToString(clientPublicKey));
 
-        // Thread para receber mensagens
+        // Thread para receber mensagens do servidor.
         new Thread(() -> {
             String serverMsg;
             try {
@@ -68,7 +83,7 @@ public class ChatClientTCP {
                     if (targetKey == null) {
                         // System.out.println("[INFO] Solicitando chave pública de " + targetUser + "...");
                         out.println("REQKEY:" + targetUser);
-                        // aguarda receber PUBKEYRESP na thread de recebimento
+                        // Aguarda a chave ser recebida na thread de recebimento
                         while (!keyCache.containsKey(targetUser)) {
                             Thread.sleep(50);
                         }

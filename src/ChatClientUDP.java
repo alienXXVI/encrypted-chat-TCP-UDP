@@ -2,31 +2,31 @@ import java.net.*;
 import java.security.*;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.Base64;
 
 public class ChatClientUDP {
     private static final String SERVER_IP = "localhost";
     private static final int SERVER_PORT = 50001;
     private static final int BUFFER_SIZE = 8192;
 
+    private static Map<String, PublicKey> publicKeyCache = new ConcurrentHashMap<>();
+    private static KeyPair keyPair;
+    private static PrivateKey myPrivate;
+
     public static void main(String[] args) throws Exception {
         DatagramSocket socket = new DatagramSocket();
         Scanner scanner = new Scanner(System.in);
 
-        Map<String, PublicKey> publicKeyCache = new ConcurrentHashMap<>();
-
-        KeyPair keyPair = RSAUtils.generateKeyPair();
+        keyPair = RSAUtils.generateKeyPair();
         PublicKey myPublic = keyPair.getPublic();
-        PrivateKey myPrivate = keyPair.getPrivate();
+        myPrivate = keyPair.getPrivate();
 
         System.out.print("Digite seu nome de usuario: ");
         String username = scanner.nextLine();
 
-        // Registro no servidor
         send(socket, "REGISTRO:" + username + ":" + RSAUtils.keyToString(myPublic));
-        // Solicita lista de usuários ativos
-        send(socket, "LISTAR_USUARIOS:");
 
-        // Thread para receber mensagens
+        // Thread de recepção
         new Thread(() -> {
             byte[] buffer = new byte[BUFFER_SIZE];
             while (!socket.isClosed()) {
@@ -35,30 +35,23 @@ public class ChatClientUDP {
                     socket.receive(packet);
                     String msg = new String(packet.getData(), 0, packet.getLength());
 
-                    // Recebe lista de usuários
-                    if (msg.startsWith("Usuarios registrados:")) {
+                    if (msg.startsWith("LISTA_KEYS:")) {
                         String[] lines = msg.split("\n");
                         for (String line : lines) {
-                            line = line.trim();
-                            if (line.isEmpty() || line.startsWith("Usuarios")) continue;
-                            String user = line.substring(2); // remove "- "
-                            if (!user.equals(username) && !publicKeyCache.containsKey(user)) {
-                                send(socket, "REQKEY:" + user);
-                            }
+                            if (line.trim().isEmpty() || line.startsWith("LISTA_KEYS")) continue;
+                            String[] kv = line.split(":", 2);
+                            String user = kv[0];
+                            PublicKey key = RSAUtils.stringToPublicKey(kv[1]);
+                            publicKeyCache.put(user, key);
                         }
-                    }
-
-                    // Recebe chave pública
-                    else if (msg.startsWith("PUBKEYRESP:")) {
+                        // System.out.println("[INFO] Lista inicial de chaves recebida.");
+                    } else if (msg.startsWith("NEWKEY:")) {
                         String[] parts = msg.split(":", 3);
                         String user = parts[1];
                         PublicKey key = RSAUtils.stringToPublicKey(parts[2]);
                         publicKeyCache.put(user, key);
-                        System.out.println("[INFO] Chave publica de " + user + " recebida.");
-                    }
-
-                    // Recebe mensagens privadas
-                    else if (msg.startsWith("PRIVADO:") || msg.startsWith("ENCRYPTED:")) {
+                        // System.out.println("[INFO] Nova chave recebida de " + user);
+                    } else if (msg.startsWith("PRIVADO:") || msg.startsWith("ENCRYPTED:")) {
                         String[] parts = msg.split(":", 6);
                         String from = parts[1];
                         boolean secure = parts[3].equalsIgnoreCase("SECURE");
@@ -74,21 +67,17 @@ public class ChatClientUDP {
                                 if (valid)
                                     System.out.println("[Privado-SECURE] " + from + ": " + decrypted);
                                 else
-                                    System.out.println("[ERRO] Assinatura inválida de " + from);
+                                    System.out.println("[ERRO] Assinatura invalida de " + from);
                             } else {
-                                System.out.println("[ERRO] Chave pública de " + from + " não encontrada.");
+                                System.out.println("[ERRO] Chave publica de " + from + " nao encontrada.");
                             }
                         } else {
                             String text = parts[3];
                             System.out.println("[Privado] " + from + ": " + text);
                         }
-                    }
-
-                    // Mensagens gerais
-                    else {
+                    } else {
                         System.out.println(msg);
                     }
-
                 } catch (Exception e) {
                     e.printStackTrace();
                     break;
@@ -96,7 +85,7 @@ public class ChatClientUDP {
             }
         }).start();
 
-        // Loop principal de envio
+        // Loop de envio
         while (true) {
             String input = scanner.nextLine();
 
@@ -114,15 +103,12 @@ public class ChatClientUDP {
                 String msgText = secure ? parts[2] : input.substring(input.indexOf(" ") + 1);
 
                 if (secure) {
-                    // Se não temos a chave, pedimos e aguardamos
-                    if (!publicKeyCache.containsKey(target)) {
-                        send(socket, "REQKEY:" + target);
-                        while (!publicKeyCache.containsKey(target)) {
-                            Thread.sleep(50); // espera chegar a chave
-                        }
+                    PublicKey destKey = publicKeyCache.get(target);
+                    if (destKey == null) {
+                        System.out.println("[ERRO] Nao tenho a chave publica de " + target);
+                        continue;
                     }
 
-                    PublicKey destKey = publicKeyCache.get(target);
                     byte[] encrypted = RSAUtils.encrypt(msgText, destKey);
                     byte[] signature = RSAUtils.sign(msgText, keyPair.getPrivate());
 
@@ -130,7 +116,6 @@ public class ChatClientUDP {
                             Base64.getEncoder().encodeToString(signature) + ":" +
                             Base64.getEncoder().encodeToString(encrypted);
                     send(socket, packet);
-
                 } else {
                     send(socket, "PRIVADO:" + username + ":" + target + ":" + msgText);
                 }

@@ -3,6 +3,14 @@ import java.security.PublicKey;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
+/**
+ * Servidor de chat UDP que gerencia a comunicação baseada em pacotes.
+ * Armazena endereços e chaves públicas de clientes para roteamento
+ * de mensagens e lida com mensagens de texto e criptografadas.
+ *
+ * @author [Seu Nome]
+ * @version 1.0
+ */
 public class ChatServerUDP {
     private static final int PORT = 50001;
     private static final int BUFFER_SIZE = 8192;
@@ -12,6 +20,13 @@ public class ChatServerUDP {
     // username -> chave pública
     private static Map<String, PublicKey> clientPublicKeys = new ConcurrentHashMap<>();
 
+    /**
+     * Ponto de entrada principal do servidor UDP. Inicia o DatagramSocket
+     * e entra em um loop infinito para receber e processar pacotes.
+     *
+     * @param args Argumentos da linha de comando (não utilizados).
+     * @throws Exception Se ocorrer um erro durante a inicialização.
+     */
     public static void main(String[] args) throws Exception {
         DatagramSocket socket = new DatagramSocket(PORT);
         System.out.println("Servidor UDP pronto na porta " + PORT);
@@ -34,9 +49,22 @@ public class ChatServerUDP {
                 clients.put(username, new InetSocketAddress(addr, port));
                 clientPublicKeys.put(username, pk);
 
+                // Envia todas as chaves já registradas para o novo usuário
+                StringBuilder sb = new StringBuilder("LISTA_KEYS:\n");
+                for (Map.Entry<String, PublicKey> entry : clientPublicKeys.entrySet()) {
+                    sb.append(entry.getKey()).append(":")
+                    .append(RSAUtils.keyToString(entry.getValue())).append("\n");
+                }
+                send(socket, sb.toString(), addr, port);
+
+                // Notifica todos os outros sobre a chave do novo usuário
+                String newKeyMsg = "NEWKEY:" + username + ":" + RSAUtils.keyToString(pk);
+                broadcast(socket, newKeyMsg, username);
+
                 broadcast(socket, username + " entrou no chat.", null);
                 continue;
             }
+
 
             if (msg.startsWith("SAIR:")) {
                 String username = msg.substring(5).trim();
@@ -86,12 +114,11 @@ public class ChatServerUDP {
                 }
 
                 if (secure) {
-                    // encaminha pacote criptografado direto
                     send(socket, msg, destAddr.getAddress(), destAddr.getPort());
                     // System.out.println("[Privado-SECURE] " + from + " para " + to);
                 } else {
-                    String text = parts[3]; // mensagem clara
-                    send(socket, "[Privado] " + from + " para " + to + ": " + text,
+                    String text = parts[3];
+                    send(socket, "[Privado] " + from + ": " + text,
                          destAddr.getAddress(), destAddr.getPort());
                     System.out.println("[Privado] " + from + " para " + to + ": " + text);
                 }
@@ -99,6 +126,14 @@ public class ChatServerUDP {
         }
     }
 
+    /**
+     * Envia uma mensagem de broadcast para todos os clientes registrados.
+     *
+     * @param socket O DatagramSocket do servidor.
+     * @param msg A mensagem a ser enviada.
+     * @param from O nome do usuário remetente (para evitar enviar para ele mesmo).
+     * @throws Exception Se ocorrer um erro de I/O.
+     */
     private static void broadcast(DatagramSocket socket, String msg, String from) throws Exception {
         for (Map.Entry<String, InetSocketAddress> entry : clients.entrySet()) {
             if (from != null && entry.getKey().equals(from)) continue;
@@ -107,6 +142,15 @@ public class ChatServerUDP {
         System.out.println(msg);
     }
 
+    /**
+     * Envia um pacote de datagrama para um endereço e porta específicos.
+     *
+     * @param socket O DatagramSocket do servidor.
+     * @param msg A mensagem a ser enviada.
+     * @param addr O endereço IP de destino.
+     * @param port A porta de destino.
+     * @throws Exception Se ocorrer um erro de I/O.
+     */
     private static void send(DatagramSocket socket, String msg, InetAddress addr, int port) throws Exception {
         byte[] data = msg.getBytes();
         DatagramPacket packet = new DatagramPacket(data, data.length, addr, port);
