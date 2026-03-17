@@ -48,7 +48,7 @@ Open multiple terminal windows to simulate different users and run:
 -   **`ChatClientTCP.java` & `ChatClientUDP.java`**: Handle user input, key generation, and the asynchronous receiving of messages.
 -   **`RSAUtils.java`**: A utility class containing the logic for generating 2048-bit RSA keys, encrypting/decrypting data, and signing/verifying messages.
 -   **`.gitignore`**: Configured to ignore compiled `.class` files and IDE-specific folders.
--   **`README`**: Project documentation.
+-   **`README.md`**: Project documentation.
 
 ## What I Learned
 
